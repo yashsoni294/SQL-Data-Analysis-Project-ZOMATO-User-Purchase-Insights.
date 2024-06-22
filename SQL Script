@@ -1,0 +1,257 @@
+DROP TABLE if exists goldusers_signup;
+CREATE TABLE goldusers_signup(userid integer,gold_signup_date date); 
+
+INSERT INTO goldusers_signup(userid,gold_signup_date) 
+ VALUES (1,'2017-09-22'),
+(3,'2017-04-21');
+
+DROP TABLE if exists users;
+CREATE TABLE users(userid integer,signup_date date); 
+
+INSERT INTO users(userid,signup_date) 
+ VALUES (1,'2014-09-02'),
+(2,'2015-01-15'),
+(3,'2014-04-11');
+
+DROP TABLE if exists sales;
+CREATE TABLE sales(userid integer,created_date date,product_id integer); 
+
+INSERT INTO sales(userid,created_date,product_id) 
+ VALUES (1,'2017-04-19',2),
+(3,'2019-12-18',1),
+(2,'2020-07-20',3),
+(1,'2019-10-23',2),
+(1,'2018-03-19',3),
+(3,'2016-12-20',2),
+(1,'2016-11-09',1),
+(1,'2016-05-20',3),
+(2,'2017-09-24',1),
+(1,'2017-03-11',2),
+(1,'2016-03-11',1),
+(3,'2016-11-10',1),
+(3,'2017-12-07',2),
+(3,'2016-12-15',2),
+(2,'2017-11-08',2),
+(2,'2018-09-10',3);
+
+DROP TABLE if exists product;
+CREATE TABLE product(product_id integer,product_name text,price integer); 
+
+INSERT INTO product(product_id,product_name,price) 
+ VALUES
+(1,'p1',980),
+(2,'p2',870),
+(3,'p3',330);
+
+-- Q1 WHAT IS THE TOTAL AMOUNT EACH CUSTOMER SPENT ON ZOMATO ? 
+
+WITH TOTAL_AMT_SPND AS (
+  	SELECT S.userid, SUM(P.price) AS TOTAL_SPENT
+	FROM Sales AS S
+	LEFT JOIN Product AS P
+	ON S.product_id = P.product_id
+	GROUP BY S.userid
+  )
+SELECT * FROM TOTAL_AMT_SPND
+
+-- Q2 HOW MANY DAYS HAS EACH CUSTOMER VISITED ZOMATO ?
+
+WITH DAY_VISIT AS (
+  	SELECT userid, COUNT(DISTINCT created_date) AS DAYS_VISIT
+	FROM Sales
+	GROUP BY userid
+)
+SELECT * FROM DAY_VISIT
+
+-- Q3 WHAT WAS THE FIRST PRODUCT PURCHASED BY EACH CUSTOMER ?
+
+WITH FIRST_PRO AS(
+  	SELECT *,
+ 	RANK() OVER(PARTITION BY userid ORDER BY (created_date)) AS RK
+	FROM Sales S
+)
+SELECT *
+FROM FIRST_PRO
+WHERE RK = 1
+
+--Q4 WHAT IS THE MOST PURCHASED ITEM ON THE MENU AND HOW MANY TIMES WAS IT PURCHASED BY CUSTOMERS ?
+
+WITH MOST_BOUGHT AS (
+  	SELECT product_id, COUNT(product_id) AS CNT
+	FROM Sales
+	GROUP BY product_id
+  	ORDER BY CNT DESC LIMIT 1
+), NO_OF_COUNT AS
+(
+SELECT userid, COUNT(product_id) AS NO_TIMES
+FROM Sales 
+WHERE product_id IN (SELECT product_id FROM MOST_BOUGHT)
+GROUP BY userid
+)
+SELECT * FROM NO_OF_COUNT
+
+-- Q5 WHICH ITEM WAS THE MOST POPULAR FOR EACH CUSTOMER ?
+WITH CTE AS (
+  	SELECT userid, product_id, COUNT(product_id) AS CNT 
+	FROM Sales
+	GROUP BY userid, product_id
+	ORDER BY userid, CNT DESC
+), CTE_1 AS
+(
+SELECT userid, product_id, 
+	RANK() OVER(PARTITION BY userid ORDER BY CNT DESC) RNK
+	FROM CTE
+)
+SELECT userid, product_id
+FROM CTE_1
+WHERE RNK = 1
+
+-- Q6 WHICH ITEM WAS PURCHASED FIRST BY THE CUSTOMER AFTER THEY BECAME A GOLD MEMBER ?
+
+WITH CTE AS 
+(
+  	SELECT S.userid, S.created_date, S.product_id
+	FROM Sales AS S
+	INNER JOIN Goldusers_signup AS G
+	ON S.userid = G.userid AND S.created_date >= G.gold_signup_date
+), CTE_1 AS 
+(
+	SELECT *,
+	RANK() OVER(PARTITION BY userid ORDER BY created_date) AS RNK
+	FROM CTE
+)
+SELECT *
+FROM CTE_1
+WHERE RNK = 1
+
+-- Q7 WHICH ITEM WAS PURCHASED JUST BEFORE THE CUSTOMER BECAME A MEMBER ?
+
+WITH CTE AS 
+(
+  	SELECT S.userid, S.created_date, S.product_id
+	FROM Sales AS S
+	INNER JOIN Goldusers_signup AS G
+	ON S.userid = G.userid AND S.created_date <= G.gold_signup_date
+), CTE_1 AS 
+(
+	SELECT *,
+	RANK() OVER(PARTITION BY userid ORDER BY created_date DESC) AS RNK
+	FROM CTE
+)
+SELECT *
+FROM CTE_1
+WHERE RNK = 1
+
+-- Q8 WHAT IS THE TOTAL ORDERS AMOUNT SPENT FOR EACH MEMBER BEFORE THEY BECAME A MEMBER ?
+
+WITH CTE AS 
+(
+  	SELECT S.userid, P.price
+	FROM Sales AS S
+	INNER JOIN Goldusers_signup AS G
+	ON S.userid = G.userid AND S.created_date <= G.gold_signup_date
+  	LEFT JOIN Product P
+  	ON S.product_id = P.product_id
+)
+
+SELECT userid, SUM(price) AS TOTAL_SPENT
+FROM CTE
+GROUP BY userid
+
+
+-- Q9 IF BUYING EACH PRODUCT GENERATES PONTS FOR EX 5RS = 2 ZOMATO POINT AND EACH PRODUCT HAS DIFFERENT PURCHASING POINTS FOR
+-- EX FOR P1 5RS = 1 ZOMATO POINT, FOR P2 10RS = 5 ZOMATO POINT AND P3 5RS = 1 ZOMATO POINT CALCULATE POINT COLLECTED BY EACH
+-- CUSTOMER AND FOR WHICH PRODUCT MOST POINT HAVE  BEEN GIVEN TILL NOW.
+
+WITH PRD_PNT AS
+(
+  	SELECT *,
+		CASE
+    		WHEN product_name = 'p1' THEN 980/5
+        	WHEN product_name = 'p2' THEN 870/2
+        	WHEN product_name = 'p3' THEN 330/5
+  			ELSE 0
+    	END AS ZOMATO_POINT
+	FROM Product
+), CTE_1 AS
+(
+  	SELECT *
+	FROM Sales AS S
+	JOIN PRD_PNT AS P
+	ON S.product_id = P.product_id
+)
+
+SELECT userid, SUM(ZOMATO_POINT) AS ZOMATO_POINT,  SUM(ZOMATO_POINT) * 2.5 AS RUPEES_REWARD
+FROM CTE_1
+GROUP BY userid 
+
+SELECT product_name, SUM(ZOMATO_POINT) AS ZOMATO_POINT
+FROM CTE_1
+GROUP BY product_name
+ORDER BY ZOMATO_POINT DESC
+LIMIT 1
+
+-- Q10 IN THE FIRST ONE YEAR AFTER A CUSTOMER JOINS THE GOLD PROGRAM(INCLUDING THEIR JOIN DATE) IRRWSPWCTIVE OF WHAT THE
+-- CUSTOMER HAS PURCHASED THEY EARN 5 ZOMATO POINTS FOR EVERY 10RS SPENT WHO EARNED MORE 1 OR 3 AND WHAT WAS THEIR POINTS
+--IN THEIR FIRST YEAR ?
+
+WITH CTE AS 
+(
+  	SELECT S.userid, P.product_id, P.price
+	FROM Sales AS S
+	INNER JOIN Goldusers_signup AS G
+	ON S.userid = G.userid
+	INNER JOIN Product P
+	ON S.product_id = P.product_id
+	WHERE S.created_date >=  G.gold_signup_date AND S.created_date - G.gold_signup_date <= 1
+)
+
+SELECT userid AS ID, price / 2 AS POINTS
+FROM CTE
+ORDER BY POINTS DESC
+LIMIT 1
+
+-- Q11 RANK ALL THE TRANSACTION OF THE CUSTOMERS ?
+
+SELECT *,
+	RANK() OVER(PARTITION BY userid ORDER BY created_date) AS TRN_RANK
+FROM Sales
+
+
+-- Q12 RANK ALL THE TRANSACTIONS FOR EACH MEMBER WHENEVER THER ARE A ZOMATO GOLD MEMBER FOR EVERY NON GOLD MEMBER TRANSACTION MARK AS NA
+
+WITH CTE AS 
+(
+  	SELECT S.userid, S.created_date, G.gold_signup_date,
+	RANK() OVER(PARTITION BY S.userid ORDER BY S.created_date) AS RNK
+	FROM Sales AS S
+	INNER JOIN Goldusers_signup AS G
+	ON S.userid = G.userid AND S.created_date >= G.gold_signup_date
+)
+SELECT S.userid, S.created_date, S.product_id,
+ 	CASE
+    	WHEN RNK IS NOT NULL THEN RNK
+        ELSE 'NA'
+    END AS RANK
+FROM Sales AS S
+LEFT JOIN CTE AS C
+ON C.created_date = S.created_date
+
+-- Q13 Create a stored procedure named GetTotalAmountSpent that takes a user ID as an input parameter and returns 
+-- 	the total amount spent by that user on all purchases.
+
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS GetTotalAmountSpent;
+
+CREATE PROCEDURE GetTotalAmountSpent(IN p_userid INT)
+BEGIN
+    -- Retrieve the total amount spent by the user
+    SELECT SUM(p.price) AS total_amount_spent
+    FROM sales s
+    JOIN product p ON s.product_id = p.product_id
+    WHERE s.userid = p_userid;
+END //
+
+DELIMITER ;
+
